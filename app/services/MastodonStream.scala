@@ -65,8 +65,7 @@ class MastodonStream @Inject()(
     configuration.get[String]("world.default.access-token")
   private implicit val mat = ActorMaterializer()
 
-  Client("https://botsin.space", accessToken).streaming.user
-    .runForeach { processMessage }
+  Client("https://botsin.space", accessToken).streaming.user(processMessage)
 
   private def send(request: HttpRequest) =
     Http().singleRequest(

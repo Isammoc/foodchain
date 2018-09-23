@@ -1,5 +1,6 @@
 package mastodon
 
+import akka.Done
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.Uri.Path
@@ -8,6 +9,7 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.sse.ServerSentEvent
 import akka.stream.{ActorMaterializer, ThrottleMode}
 import akka.stream.alpakka.sse.scaladsl.EventSource
+import akka.stream.scaladsl.Sink
 import play.api.libs.json._
 import play.api.libs.json.Reads._
 import play.api.libs.functional.syntax._
@@ -64,8 +66,8 @@ case class Client(baseApiUrl: String, accessToken: String) {
 
   case object streaming {
 
-    def user(implicit actorSystem: ActorSystem) = {
-      implicit val mat = ActorMaterializer()
+    def user(f: Notification => Unit)(implicit actorSystem: ActorSystem): Future[Done] = {
+      implicit val mat: ActorMaterializer = ActorMaterializer()
       EventSource(
         Uri(baseApiUrl).withPath(Path("/api/v1/streaming/user")),
         send,
@@ -73,10 +75,11 @@ case class Client(baseApiUrl: String, accessToken: String) {
         1.second
       ).throttle(1, 500.milliseconds, 1, ThrottleMode.Shaping)
         .filter(_.eventType.contains("notification"))
-        .map {
-          case ServerSentEvent(data, _, _, _) =>
-            json.Json.parse(data).as(Json.notificationReads)
-        }
+        .runWith(Sink.foreach{
+          case ServerSentEvent(data, Some("notification"), _, _) =>
+            f(json.Json.parse(data).as(Json.notificationReads))
+          case _ => // ignore
+        })
     }
 
     private def send(request: HttpRequest)(implicit actorSystem: ActorSystem) =
